@@ -42,35 +42,72 @@ function initSocketServer(httpServer){
 
     /* MessagePayLoad = { chat : chatId, content: message text} */
 
-            const message = await messageModel.create({
-                chat: messagePayload.chat,
-                user: socket.user._id,
-                content: messagePayload.content,
-                role: "user"
-            })
-
-            const vector = await aiService.generateVector(messagePayload.content);
-
-            const memory = await queryMemory({
-                queryVector: vector, 
-                limit: 3,
-                metadata: {}
-            })
-
-            await createMemory({
-                vectors: vector,   // ✅ match hona chahiye
-                messageId: message._id,
-                metadata:{
+            /*
+                const message = await messageModel.create({
                     chat: messagePayload.chat,
                     user: socket.user._id,
-                    text: messagePayload.content   // ✅ add text metadata
+                    content: messagePayload.content,
+                    role: "user"
+                })
+
+                const vector = await aiService.generateVector(messagePayload.content);
+            */
+        /////////////  user message save in DB
+                // Step 1: Save user message & generate vector in parallel
+                    const [message, vector] = await Promise.all([
+                    messageModel.create({
+                        chat: messagePayload.chat,
+                        user: socket.user._id,
+                        content: messagePayload.content,
+                        role: "user"
+                    }),
+                    aiService.generateVector(messagePayload.content),
+                    ]);
+
+                    // Step 2: Save vector to Pinecone
+                    await createMemory({
+                            vectors: vector,
+                            messageId: message._id,
+                            metadata: {
+                                chat: String(messagePayload.chat),
+                                user: String(socket.user._id),
+                                text: messagePayload.content
+                                }
+                        })
+
+
+            /*const memory = await queryMemory({
+                queryVector: vector, 
+                limit: 3,
+                metadata: {
+                    user: socket.user._id,
                 }
             })
-
 
             const chatHistory = (await messageModel.find({
                 chat: messagePayload.chat
             }).sort({ createdAt: -1}).limit(4).lean()).reverse();
+            */
+
+            /////////////  query pinecone for related memories  
+            const [memory, chatHistoryDesc] = await Promise.all([
+                queryMemory({
+                    queryVector: vector,
+                    limit: 3,
+                    metadata: {
+                        user: String(socket.user._id)
+                    }
+                }),
+            ///////// get chat history from the DB
+                messageModel.find({ chat: messagePayload.chat })
+              .sort({ createdAt: -1 })
+              .limit(4)
+              .lean()
+
+            ]);
+
+            // turn the last 4 into chronological order
+            const chatHistory = [...chatHistoryDesc].reverse();
 
             const stm = chatHistory.map(item => ({
                 role: item.role,
@@ -88,7 +125,12 @@ function initSocketServer(httpServer){
 
             const response = await aiService.generateResponse([...longtm, ...stm]);
 
-            const responseMessage = await messageModel.create({
+            socket.emit("ai-response", {
+                content: response,
+                chat: messagePayload.chat,
+            });
+
+           /* const responseMessage = await messageModel.create({
                 chat: messagePayload.chat,
                 user: socket.user._id,
                 content: response,
@@ -96,6 +138,18 @@ function initSocketServer(httpServer){
             })
 
             const responseVectors = await aiService.generateVector(response);
+            */
+
+            ////////// save AI response in DB and pinecone
+            const [responseMessage, responseVectors] = await Promise.all([
+                messageModel.create({
+                    chat: messagePayload.chat,  
+                    user: socket.user._id,
+                    content: response,
+                    role: "model"
+                }),
+                aiService.generateVector(response)
+            ])
 
             await createMemory({
                 vectors: responseVectors,
@@ -107,10 +161,7 @@ function initSocketServer(httpServer){
                 }
             })
 
-            socket.emit("ai-response", {
-                content: response,
-                chat: messagePayload.chat,
-            });
+            
         } catch (err) {
                 console.error("AI service error:", err.message);
                 socket.emit("ai-response", {
