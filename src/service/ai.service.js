@@ -4,19 +4,12 @@ const ai = new GoogleGenAI({apiKey: "AIzaSyDAxiqY-hQ9EwTrvRRTUqBFTLzbaj0oRiY"})
 
 async function generateResponse(messages) {
   try {
-    const validMessages = messages
-      .filter(item => item.content && item.content.trim() !== "") // ✅ keep only valid text
-      .map(item => ({
-        role: item.role || "user", // fallback
-        parts: [{ text: item.content }]
-      }));
-
     const response = await ai.models.generateContent({
       model: "gemini-2.0-flash",
-      contents: validMessages,
+      contents:  messages,
     });
 
-    return response.candidates[0].content.parts[0].text;
+    return response.text;
   } catch (err) {
     console.error("AI service error:", err);
     throw err;
