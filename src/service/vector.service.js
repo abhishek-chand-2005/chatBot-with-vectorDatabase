@@ -2,7 +2,7 @@
 const { Pinecone } =  require('@pinecone-database/pinecone');
 
 // Initialize a Pinecone client with your API key
-const pc = new Pinecone({ apiKey: 'pcsk_MCqBD_GVQqNQzMdgySyYUiBdD1BzY3J5yZ8uSBtSHU6xVK8WrkHMfzFbffJLQUywr67P3' });
+const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
 
 // Create a dense index with integrated embedding
 const cohortChatGptIndex = pc.Index('cohort-chat-gpt');
